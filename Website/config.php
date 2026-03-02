@@ -1,11 +1,15 @@
 <?php
+// Enable error reporting for debugging
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 // Database Configuration for Green Loop
 // Update these values according to your MySQL setup
 
 define('DB_HOST', 'localhost');
 define('DB_USER', 'root');
 define('DB_PASS', '');
-define('DB_NAME', 'greenloop');
+define('DB_NAME', 'greenloop_db');
 
 // Create database connection
 function getDBConnection() {

@@ -1,8 +1,8 @@
 -- Green Loop Database Schema
 -- MySQL Database for Smart Plastic Collection Bin System
 
-CREATE DATABASE IF NOT EXISTS greenloop;
-USE greenloop;
+CREATE DATABASE IF NOT EXISTS greenloop_db;
+USE greenloop_db;
 
 -- Users Table
 CREATE TABLE IF NOT EXISTS users (
