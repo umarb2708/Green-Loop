@@ -1,0 +1,146 @@
+Green Loop
+Description: Smart plastic collection bin which collect the bins and provide points to the user who dispose it 
+This project contains both Hardware and Software parts. 
+There will be 4 chambers for a bins for disposing PET(bin1), HDPE(bin2), PP(bin3), Others(bin4) where the lid of this bins are controlled by servo motor. 
+
+Hardware Details 
+    1. ESP32 Cam: Act as MCU & scan QR
+    2. 4x IR Sensor: To confirm plastic entry
+    3. 4x SG90 servo: To open close lid
+    4. 20KG load cell+HX711(I2C): To confirm the bottle disposal by checking weight chnage
+    5. PCA9685 16 Channel Servo Motor Driver (I2C) : controll Servo 
+    6. two push button 1. Start/continue 2. Stop/Done
+    7. Oled: For display
+
+Hardware Working: 
+Esp32 should use the Flash memory to store Wifi credential, IP address, bin id. 
+Wifi_Setup(): (Inside setup function to run after reset or power on)
+    1. Use the stored wifi credential to connect
+    2. If no stored value or not connected to store wifi for 15 sec, then start config_mode
+    3. once new credential recieved or exit from config mode, then continue step 1
+Config_Mode():(works only when functions is called)
+    1. Change ESP32 to AP Mode with SSID: GreenLoop, Password: Green@123#
+    2. Start a webserver with form of following field. Show the IP in oled
+        2.1: SSID: User can input the new WiFi SSID here
+        2.2: Password: User can input the new WiFi Password here
+        2.3: IP: this will the website or server IP address for API call 
+        2.4: BinID: this is the bin_id value generate from creating a new bin from software side
+    3. Store the values in Flash memory
+    4. Change the ESP32 to STA mode and exit. 
+read_bin_status(): (This works inside the loop function for every 5 sec and also works when called)
+    1. check the total weight
+    2. check the state of lid_status[bin_num] (closed or opened) according to servo position
+    3. check the IR values. If output return High or Low
+    4. for each bin_chamber, If IRVal[bin_num] == LOW &  lid_status[bin_num] = CLOSED, then bin_full[bin_num] =1 else bin_full[bin_num] =0
+    5. return weight, bin_status for each chambers like a 4 digit number. 
+read_button_click() (This works inside the loop function for every 5 sec and also works when called)
+    1. check the button1 input
+    2. check the button2 input 
+    3. if (button1 == clicked && button2 == not clicked), then call disposal function
+    4. if (button1 == clicked && button2 == clicked), then call Config Mode function
+    6. else do nothing and return
+disposal(): 
+    1. Initialize a variable tot_points == 0
+    2. User scan the QR code of the plastic
+    3. Hardware will check the type of plastic from "product_data" table of the website database
+    4. call read_bin_status & check the particular bin is full or not
+    5. If not full, then trigger to open the lid of the particular bin or else go to step 9 with 'bin full' status showed in OLED
+    6. A IR sensor placed inside the bin near to the LID will confirm the entry of plastic by changing output state from High to Low. 
+    7. A Load Sensor common to all bins will calculate the weight and chnage in the old weight confirms the plastic disposal
+    8. Update the points by adding this below reward points to tot_points
+        PET = 10 points
+        HDPE = 20 points
+        PP = 30 points
+        others = 5 points
+    9. Show the tot_points and ask for continue or stop
+    10. If user pressed continue(button1), Then repeat from step 2
+    11. Else if user pressed stop(button2) button, the hardware do the following 
+        11.1. Calculate full points from start to stop. 
+        11.2. Generate a 6 character alphanumeric random value
+        11.3. Call read_bin_status function for bin status  
+        11.4. Push the points , alphanumeric value to the table 'rewards_data' & weight, bin_full to 'bin_data'  table in the website database
+        11.5. Shows the points & the alphanumeric value in OLED screen
+        11.6. User will press Done(button2) button and exit function. 
+
+Software Details
+    1. HTML, CSS : Front end
+    2. PHP: Backend
+    3. MySQL: database
+MySQL tables 
+    1. users: This contains the user login info. it contains following coloumn
+      a. id: Auto increment primary key 
+      b. Name: Name of the user 
+      c. username: username for the user. This should be unique 
+      d. password: password for the user
+      e. is_admin: tinyint(1) value informs that the current use is admin or not. 1: Admin 0: Normal user
+      d. rewards_collected: This is the total reward points collected by the user. Applicable for Normal user only. 
+    2. product_data
+      a. id: Auto increment primary key
+      b. qr_id: this a random 10 character alphanumeric value when adding product by admin. This is used by the hardware while scanning plastic
+      c. Manufacturer: This is the Manufacturer name for that bottle
+      d. type: This shows the type of plastic 
+    3. bin_data
+      a. id: Auto increment primary key
+      b. loaction: This will hold the location of the smart bin is placed
+      c. Current Status:  4 digit value informs whether the bin is full or not with 1 or 0 at the bin position. Eg: 0001 show bin4 is full. 
+      d. weight: current weight of bin from last entry
+    4. rewards_data
+      a. id: Auto increment primary key
+      b. unique_code: this is the alphanumeric code generated at step 11.2 of hardware Working
+      c. points: this is the total points calculated at at step 11.1 of hardware Working
+      d. collected: This will shows that the reward is already collected or not. default to 0. 
+Software Details 
+    1. index page: 
+        Login section: This will show login form. User or admin can login here. use the 'users' table from DB. if successful_login is done & is_admin ==1 for the current user, then go to admin_dashboard, else if successful_login =1 & is_admin=0, then go to user_dashboard else show login error
+        Signup Section: This is a button along with login button to signup for a new user. Clicking on this button open a form with following field
+            a. Name: Name of the user
+            b. username: user can choose a username. This should be unique
+            c. password: user can choose a passwor. 
+            d. Submit: clicking this button add a new entry inside users table
+    2. admin_dashboard: This dashboard shows status of bin or controll to add new bins. This page have following section
+        a. Button section: This section contains buttons
+            a.1. Add new bin: This button will open a form to add new bin with following fields
+                location: input field to add a location 
+                Submit: Button will do following
+                    step1: add a new entry in bin_data table
+                    step2: shows the id value (primary key). (this key is used in config_mode of hardware)
+                    Step3: Closes when admin click ok on the page where ID is displayed and return to admin_dashboard
+            a.2. add product: This should open a form for entrering new product_data. Form has following fields
+                Manufacturer: input text field to enter manufacturer informs
+                Type: Dropdown for the type of plastic (PET, HDPE, PP, Others)
+                Submit: Button. After clicking, this will do following
+                    step1: create a 10 character alphanumeric code which is the qr_id.
+                    step2: this qr_id, manufacturer, type is inserted in to the product_data table as new entry.
+                    step3: Generate a QR code using this the qr_id and show it as a pdf form. User can download this 
+                    After clicking OK, retrun to admin_dashboard
+        b. Bin Status: This will have following section
+            b.1 Location selection: This will show the location data of bin_data table as a Dropdown
+            b.2 Status: This shows the chambers(PET, HDPE, PP, Others) status of bin, Weight of bins according to the location selected from dropdown of b.1 above. 
+    3. user_dashboard: This will show current reward points hold by logged_in user, button to add new rewards. This page have following sections
+        a. Current Rewards: This will show the current reawrd points hold by the users
+        b. Buttons: 
+            b.1: Add new rewards: clicking this button will open a form with following field
+                Reward Code: input the unique_code generated at step 11.5(Oled display) of disposal function of hardware
+                Submit: Button. This do following 
+                    b.1.1: Check the collected field of rewards_data tabel assosiated with the unique ID is 1. If 1, then show error like 'already collected'
+                    b.1.2: else do following
+                        step1: sum the points value of rewards_data table assosiate with the unique_code with the rewards_collected from users table assosiated with the current logged in user
+                        Step2: Update the rewards_collected to the user with new sum value generated above
+                        step3: Update the collected field of rewards_data tabel assosiated with the unique ID
+            b.2: Claim Rewards: Make this button as place holder for feture use. 
+API Details
+    1. upload_data: used to upload points , alphanumeric value to the table 'rewards_data' & weight, bin_full to 'bin_data'  table along with user id. uses below JSON
+        {
+            "Points": points, 
+            "unique_code": alphanumeric value
+            "bin_weight": weight
+            "bin_status": bin_full for each chambers
+            "bin_id": sends the bin ID from Flash memory
+        }
+    
+           
+Workspace details 
+    - Firmware
+        smart_bin.ino: Firmwarecode
+    - Website: Website data
+
