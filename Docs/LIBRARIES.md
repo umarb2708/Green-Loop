@@ -57,14 +57,17 @@ Install: Adafruit SSD1306
 Already included with ESP32 Arduino Core
 ```
 
-### 6. QUIRC QR Code Library
-**Name**: ESP32 QR Code Reader
-**Alternative**: You may need to install manually
-**Purpose**: QR code detection and decoding
+### 6. ESP32 QRCode Reader Library
+**Name**: ESP32 QRCode Reader
+**Author**: Alois Zingl (alvarowolfx)
+**Purpose**: QR code detection and decoding for ESP32-CAM
 ```
-Option 1: Search "quirc" in Library Manager
-Option 2: Download from: https://github.com/dlbeer/quirc
+Search: "ESP32 QRCode Reader" or "ESP32QRCodeReader"
+Install: ESP32 QRCode Reader by Alois Zingl
+Alternative: https://github.com/alvarowolfx/ESP32QRCodeReader
 ```
+
+**Note**: This library is specifically designed for ESP32 and provides better performance than quirc.
 
 ## ESP32 Board Support Installation
 

@@ -15,6 +15,23 @@
 #include "esp_camera.h"
 #include "quirc.h"
 
+// ==================== Forward Declarations ====================
+void displayMessage(String message);
+void Wifi_Setup();
+void Config_Mode();
+void read_bin_status();
+void read_button_click();
+void setServo(int servo_num, bool open);
+String scanQRCode();
+void disposal();
+String getPlasticType(String qr_id);
+int getPlasticBinNumber(String plastic_type);
+int getPlasticPoints(String plastic_type);
+String generateUniqueCode();
+bool uploadData(int points, String unique_code, float weight, String bin_status);
+void handleRoot();
+void handleSave();
+
 // ==================== Pin Definitions ====================
 #define IR_PIN_1 2   // PET chamber (changed from 13)
 #define IR_PIN_2 4   // HDPE chamber (changed from 12)
@@ -103,7 +120,7 @@ camera_config_t camera_config = {
 
 // ==================== Setup Functions ====================
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);  // Changed to 9600 for Arduino Web Editor compatibility
   delay(1000);
   Serial.println("\n\n=== Green Loop Starting ===");
   
@@ -284,11 +301,7 @@ void Wifi_Setup() {
     display.print("IP: ");
     display.println(IP);
     display.display();
-  }SID: GreenLoop");
-  display.println("Pass: Green@123#");
-  display.print("IP: ");
-  display.println(IP);
-  display.display();
+  }
   
   // Setup web server routes
   server.on("/", HTTP_GET, handleRoot);
@@ -392,7 +405,7 @@ void read_button_click() {
   button2_last = button2;
   
   if(button1_clicked && button2_clicked) {
-    // Both buttons pressed - enter config mode
+    // Both buttons pressed - restart to config mode
     Config_Mode();
   } else if(button1_clicked && !button2_clicked) {
     // Only start button pressed - start disposal
@@ -400,6 +413,15 @@ void read_button_click() {
   }
   
   delay(50); // Debounce
+}
+
+void Config_Mode() {
+  // Clear WiFi credentials and restart
+  displayMessage("Reset Config\nRestarting...");
+  preferences.putString("ssid", "");
+  preferences.putString("password", "");
+  delay(1000);
+  ESP.restart();
 }
 
 // ==================== Servo Control ====================
@@ -573,11 +595,7 @@ void disposal() {
       display.display();
     }
     Serial.println("Total: " + String(tot_points));
-    Serial.println("Press button to continue or stop""Total: " + String(tot_points));
-    display.println("");
-    display.println("Button1: Continue");
-    display.println("Button2: Stop");
-    display.display();
+    Serial.println("Press button to continue or stop");
     
     // Wait for button press
     while(true) {
@@ -600,7 +618,9 @@ void disposal() {
   read_bin_status();
   
   displayMessage("Uploading...");
-  if(oled_available) {
+  
+  if(uploadData(tot_points, unique_code, current_weight, get_bin_status_string())) {
+    if(oled_available) {
       display.clearDisplay();
       display.setCursor(0,0);
       display.println("Success!");
@@ -613,11 +633,7 @@ void disposal() {
     }
     Serial.println("Upload Success!");
     Serial.println("Points: " + String(tot_points));
-    Serial.println("Code: " + unique_code"Points: " + String(tot_points));
-    display.println("Code: " + unique_code);
-    display.println("");
-    display.println("Press Done");
-    display.display();
+    Serial.println("Code: " + unique_code);
   } else {
     displayMessage("Upload Failed\nCheck WiFi");
   }
