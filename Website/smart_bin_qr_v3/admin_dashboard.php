@@ -5,7 +5,6 @@
  */
 
 require_once 'config.php';
-require_once 'vendor/qr_generator.php';  // We'll create this for QR generation
 
 requireAdmin();
 

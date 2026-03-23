@@ -21,7 +21,7 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // Hardware Pin Definitions
-#define BUTTON_PIN 9        // Start/Stop session button
+#define BUTTON_PIN 10       // Start/Stop session button
 #define IR_SENSOR_1 2       // PET chamber
 #define IR_SENSOR_2 3       // HDPE chamber
 #define IR_SENSOR_3 4       // PP chamber
@@ -112,11 +112,11 @@ void setup() {
   // Initialize Display
   init_display();
   
+  // Setup WiFi (before hardware to get network ready)
+  Wifi_Setup();
+  
   // Initialize Hardware
   init_hw();
-  
-  // Setup WiFi
-  Wifi_Setup();
   
   // Initialize button
   pinMode(BUTTON_PIN, INPUT_PULLUP);

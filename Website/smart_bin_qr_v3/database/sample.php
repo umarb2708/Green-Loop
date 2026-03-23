@@ -258,16 +258,4 @@ try {
 }
 
 echo "</body></html>";
-
-/**
- * Generate random alphanumeric code
- */
-function generateQRCode($length = 10) {
-    $characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    $code = '';
-    for ($i = 0; $i < $length; $i++) {
-        $code .= $characters[rand(0, strlen($characters) - 1)];
-    }
-    return $code;
-}
 ?>
