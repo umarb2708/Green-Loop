@@ -58,18 +58,25 @@ Key Pins:
 
 | ESP32-C3 Pin | Connect To | Notes |
 |--------------|------------|-------|
-| 5V | Power supply (+5V) AND PCA9685 VCC | Powers ESP32 and servo driver |
+| 5V | Power supply (+5V) | Powers ESP32 via onboard regulator |
 | GND | Power supply (GND) | Common ground for all components |
-| 3V3 | OLED VCC | 3.3V output for OLED |
+| 3V3 | OLED VCC + PCA9685 VCC + IR Sensors | 3.3V output for logic-level components |
 
 **Power Rail Setup:**
 ```
 Power Supply (5V 3A)
-  ├─► ESP32-C3 (5V pin)
-  ├─► PCA9685 (VCC)
-  └─► PCA9685 (V+ terminal) for servos
+  ├─► ESP32-C3 (5V pin) ──► ESP32 internal 3.3V regulator
+  │                              │
+  │                              └─► 3V3 pin ──┬─► OLED VCC
+  │                                             ├─► PCA9685 VCC (logic power)
+  │                                             └─► IR Sensors VCC
+  │
+  └─► PCA9685 (V+ terminal) for servo power (5V high current)
 
 All GND pins connected together
+
+⚠️ CRITICAL: PCA9685 VCC must be 3.3V for I2C logic level compatibility with ESP32-C3!
+            PCA9685 V+ terminal gets 5V separately for servo power.
 ```
 
 ---
@@ -125,11 +132,11 @@ The PCA9685 controls all 4 servos via I2C.
 
 | PCA9685 Pin | ESP32-C3 Pin | Notes |
 |-------------|--------------|-------|
-| VCC | 5V | Logic power |
+| VCC | **3V3** | **Logic power (MUST be 3.3V for I2C compatibility)** |
 | GND | GND | Common ground |
 | SDA | GPIO 8 | I2C data |
 | SCL | GPIO 9 | I2C clock |
-| V+ | 5V Power Supply | Servo power (high current) |
+| V+ | 5V Power Supply | Servo power (high current, separate from VCC) |
 | GND (V+ terminal) | Power Supply GND | Servo ground |
 
 **Servo Connections on PCA9685:**
@@ -148,11 +155,11 @@ The PCA9685 controls all 4 servos via I2C.
 
 ```
 PCA9685
-  VCC ──────────► ESP32-C3 5V
+  VCC ──────────► ESP32-C3 3V3  ⚠️ IMPORTANT: 3.3V for I2C logic compatibility!
   GND ──────────► ESP32-C3 GND
   SDA ──────────► ESP32-C3 GPIO 8
   SCL ──────────► ESP32-C3 GPIO 9
-  V+ ───────────► 5V Power Supply (+)
+  V+ ───────────► 5V Power Supply (+)  ← Separate 5V for servo power
   GND (V+) ─────► Power Supply (-)
   
   PWM 0-3 ──────► Servos 1-4 (signal wires)
@@ -280,16 +287,18 @@ Button press pulls GPIO 10 to GND (LOW)
 
 **Total Current Calculation:**
 
-| Component | Current Draw | Quantity | Total |
-|-----------|--------------|----------|-------|
-| ESP32-C3 | ~100mA | 1 | 100mA |
-| OLED | ~20mA | 1 | 20mA |
-| PCA9685 | ~10mA | 1 | 10mA |
-| IR Sensors | ~20mA each | 4 | 80mA |
-| HX711 | ~1.5mA | 1 | 1.5mA |
-| SG90 Servos | ~100-500mA each | 4 | 400-2000mA |
+| Component | Voltage | Current Draw | Quantity | Total |
+|-----------|---------|--------------|----------|-------|
+| ESP32-C3 | 3.3V (internal) | ~100mA | 1 | 100mA |
+| OLED | 3.3V | ~20mA | 1 | 20mA |
+| PCA9685 (logic) | 3.3V | ~10mA | 1 | 10mA |
+| IR Sensors | 3.3V | ~20mA each | 4 | 80mA |
+| HX711 | 3.3V | ~1.5mA | 1 | 1.5mA |
+| **3.3V Rail Subtotal** | | | | **~211.5mA** ✅ |
+| SG90 Servos | 5V | ~100-500mA each | 4 | 400-2000mA |
 
-**Total: ~600mA to 2.2A** (depending on servo load)
+**5V Rail Total: ~400-2000mA** (servos only)  
+**3.3V Rail Total: ~211.5mA** (from ESP32's 3.3V regulator, max capacity ~500-600mA)
 
 **Recommended Power Supply:** 5V / 3A minimum
 
