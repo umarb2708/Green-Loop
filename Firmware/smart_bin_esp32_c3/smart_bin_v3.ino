@@ -59,6 +59,9 @@ bool lid_status[NUM_CHAMBERS] = {false, false, false, false};  // false = closed
 bool bin_full[NUM_CHAMBERS] = {false, false, false, false};
 float current_weight = 0.0;
 float previous_weight = 0.0;
+bool hx711_available = false;  // Track if HX711 is working
+float simulated_weight = 0.0;  // Dummy weight when HX711 fails
+int disposal_count = 0;        // Count disposals for weight simulation
 
 // WiFi Configuration
 String wifi_ssid = "";
@@ -304,14 +307,17 @@ void init_hw() {
   scale.begin(HX711_DOUT, HX711_SCK);
   
   if (!scale.is_ready()) {
-    Serial.println("ERROR: HX711 not initialized! Check wiring and reset.");
-    displayMessage("ERROR", "HX711 Failed", "Check wiring", "Reset to retry");
-    while (1);
+    Serial.println("WARNING: HX711 not detected! Using simulated weight mode.");
+    displayMessage("WARNING", "HX711 Failed", "Using simulated", "weight mode");
+    hx711_available = false;
+    simulated_weight = 2.1;  // Start with some base weight (e.g., empty bin weight)
+    delay(2000);
+  } else {
+    scale.set_scale(420.0983);  // Calibration factor (adjust as needed)
+    scale.tare();
+    hx711_available = true;
+    Serial.println("HX711 initialized successfully");
   }
-  
-  scale.set_scale(420.0983);  // Calibration factor (adjust as needed)
-  scale.tare();
-  Serial.println("HX711 initialized successfully");
   
   // Initialize IR sensors
   for (int i = 0; i < NUM_CHAMBERS; i++) {
@@ -324,6 +330,11 @@ void init_hw() {
 }
 
 void read_bin_status() {
+  // Increment simulated weight if using dummy mode
+  if (!hx711_available && disposal_count > 0) {
+    simulated_weight += 0.030;  // Add 30g per disposal
+  }
+  
   // Get current weight
   current_weight = getWeight();
   
@@ -362,14 +373,16 @@ void read_bin_status() {
 void read_button_click() {
   int reading = digitalRead(BUTTON_PIN);
   
-  // Debounce
+  // If button state changed, reset debounce timer
   if (reading != lastButtonState) {
     lastDebounceTime = millis();
+    lastButtonState = reading;
   }
   
+  // If enough time has passed and button is LOW (pressed), trigger action
   if ((millis() - lastDebounceTime) > debounceDelay) {
-    if (reading == LOW && lastButtonState == HIGH) {
-      // Button pressed
+    if (reading == LOW) {
+      // Button pressed and stable
       if (!disposal_started) {
         disposal_started = true;
         tot_points = 0;
@@ -382,10 +395,14 @@ void read_button_click() {
         Serial.println("Disposal session STOPPED");
         rewards_earned();
       }
+      
+      // Wait for button release to prevent multiple triggers
+      while (digitalRead(BUTTON_PIN) == LOW) {
+        delay(10);
+      }
+      lastDebounceTime = millis();
     }
   }
-  
-  lastButtonState = reading;
 }
 
 void disposal() {
@@ -464,6 +481,9 @@ void disposal() {
       
       if (checkWeightChange()) {
         Serial.println("Weight change confirmed!");
+        
+        // Increment disposal counter for simulated weight
+        disposal_count++;
         
         // Add points
         int points = rewardPoints[chamber];
@@ -575,11 +595,13 @@ bool checkIRSensor(int chamber) {
 }
 
 float getWeight() {
-  if (scale.is_ready()) {
+  if (hx711_available && scale.is_ready()) {
     float weight = scale.get_units(5);  // Average of 5 readings
     return max(0.0f, weight);  // Return 0 if negative
+  } else {
+    // Return simulated weight (increases by 30g per disposal)
+    return simulated_weight;
   }
-  return 0.0;
 }
 
 bool checkWeightChange() {

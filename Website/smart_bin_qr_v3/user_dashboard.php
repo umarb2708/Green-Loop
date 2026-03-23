@@ -494,8 +494,8 @@ $leaderboard = $conn->query("SELECT * FROM user_leaderboard LIMIT 10")->fetchAll
                 </div>
                 
                 <div id="scannerDiv" style="display:none;">
-                    <video id="qr-video" playsinline></video>
-                    <button class="btn btn-secondary" onclick="closeScanner()">Close Scanner</button>
+                    <div id="qr-reader" style="width:100%;max-width:500px;margin:0 auto;"></div>
+                    <button class="btn btn-secondary" onclick="closeScanner()" style="margin-top:10px;">Close Scanner</button>
                 </div>
                 
                 <div id="scanResult"></div>
@@ -538,14 +538,17 @@ $leaderboard = $conn->query("SELECT * FROM user_leaderboard LIMIT 10")->fetchAll
         function openScanner() {
             document.getElementById('scannerDiv').style.display = 'block';
             
-            html5QrCode = new Html5Qrcode("qr-video");
+            html5QrCode = new Html5Qrcode("qr-reader");
             
             html5QrCode.start(
                 { facingMode: "environment" },
-                { fps: 10, qrbox: 250 },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
                 onScanSuccess,
                 onScanError
-            );
+            ).catch(err => {
+                alert('Camera error: ' + err);
+                console.error(err);
+            });
         }
         
         function closeScanner() {
