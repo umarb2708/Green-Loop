@@ -23,6 +23,15 @@
 #include <Adafruit_SSD1306.h>
 
 // ==================== Forward Declarations ====================
+// OLED error code legend:
+// W00: No WiFi credentials in NVS
+// W01: WiFi STA connection failed (fallback to AP config mode)
+// W02: WiFi disconnected during API operation
+// C01: Config form save request missing fields
+// HW1/HW2: Missing hardware (PCA9685 / HX711)
+// A01-A04: API failures (register, poll, confirm, upload)
+void displayDebug(String line1, String line2 = "", String line3 = "", unsigned long hold_ms = 0);
+void displayErrorCode(String code, String meaning, String detail = "", unsigned long hold_ms = 2500);
 void displayMessage(String line1, String line2 = "");
 void Wifi_Setup();
 void Config_Mode();
@@ -101,12 +110,15 @@ float previous_weight = 0.0;
 
 unsigned long last_status_check = 0;
 const unsigned long STATUS_CHECK_INTERVAL = 5000;
+unsigned long last_poll_error_notice = 0;
 
 // ==================== Setup ====================
 void setup() {
   Serial.begin(9600);
   delay(1000);
   Serial.println("\n\n=== Green Loop (No-QR) Starting ===");
+
+  displayDebug("Booting...", "Init hardware");
 
   Wire.begin(I2C_SDA, I2C_SCL);
 
@@ -144,6 +156,7 @@ void setup() {
     Serial.println("Servo driver: OK");
   } else {
     Serial.println("Servo driver not found - skipping");
+    displayErrorCode("HW1", "Servo drv missing", "PCA9685 @0x40");
   }
 
   // Load cell
@@ -159,7 +172,10 @@ void setup() {
     }
     delay(100);
   }
-  if (!load_cell_available) Serial.println("Load cell not connected - skipping");
+  if (!load_cell_available) {
+    Serial.println("Load cell not connected - skipping");
+    displayErrorCode("HW2", "Load cell missing", "HX711 not ready");
+  }
 
   // Preferences
   preferences.begin("greenloop", false);
@@ -168,6 +184,9 @@ void setup() {
   server_ip     = preferences.getString("server_ip", "");
   bin_id        = preferences.getString("bin_id",    "");
   Serial.println("Preferences loaded");
+
+  displayDebug("Prefs loaded", wifi_ssid.length() ? ("SSID:" + wifi_ssid) : "SSID: none",
+               server_ip.length() ? "Server: set" : "Server: none", 800);
 
   Wifi_Setup();
 
@@ -192,23 +211,37 @@ void loop() {
 
 // ==================== WiFi / Config ====================
 void Wifi_Setup() {
-  displayMessage("WiFi Setup...");
+  displayDebug("WiFi Setup", "Checking creds...");
+
+  String cfg_reason = "W00";
 
   if (wifi_ssid.length() > 0) {
+    cfg_reason = "W01";
     WiFi.mode(WIFI_STA);
     WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
+    displayDebug("WiFi STA", "SSID: " + wifi_ssid, "Connecting...");
+
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 30) {
       delay(500);
       Serial.print(".");
       attempts++;
+
+      if (attempts == 1 || (attempts % 5 == 0)) {
+        displayDebug("WiFi connecting", "Try " + String(attempts) + "/30", "Please wait");
+      }
     }
+
     if (WiFi.status() == WL_CONNECTED) {
       Serial.println("\nWiFi connected");
-      displayMessage("WiFi Connected!");
+      displayDebug("WiFi Connected", WiFi.localIP().toString(), "Mode: STA", 1200);
       delay(1000);
       return;
     }
+
+    displayErrorCode("W01", "STA connect failed", "Switching to AP", 1600);
+  } else {
+    displayErrorCode("W00", "No WiFi creds", "Open AP config", 1400);
   }
 
   // Fall back to AP config mode
@@ -220,11 +253,14 @@ void Wifi_Setup() {
 
   if (oled_available) {
     display.clearDisplay();
+    display.setTextSize(1);
     display.setCursor(0, 0);
-    display.println("Config Mode");
+    display.println("CFG MODE [" + cfg_reason + "]");
+    display.println(cfg_reason == "W00" ? "Reason: No creds" : "Reason: STA fail");
     display.println("SSID: GreenLoop");
     display.println("Pass: Green@123#");
     display.print("IP: "); display.println(IP);
+    display.println("Open / in browser");
     display.display();
   }
 
@@ -269,16 +305,18 @@ void handleSave() {
     preferences.putString("server_ip", server_ip);
     preferences.putString("bin_id",    bin_id);
 
+    displayDebug("Config Saved", "Restarting in 2s");
     server.send(200, "text/html", "<h2>Saved! Restarting in 2s...</h2>");
     delay(2000);
     ESP.restart();
   } else {
+    displayErrorCode("C01", "Config save failed", "Missing params", 1200);
     server.send(400, "text/plain", "Missing parameters");
   }
 }
 
 void Config_Mode() {
-  displayMessage("Resetting Config", "Restarting...");
+  displayDebug("Reset Config", "Clearing SSID/PASS", "Restarting...", 1000);
   preferences.putString("ssid", "");
   preferences.putString("password", "");
   delay(1000);
@@ -358,7 +396,7 @@ void disposal() {
   // Register sync code with server so website can validate it
   if (!registerSync(sync_code)) {
     Serial.println("Warning: could not register sync code with server");
-    displayMessage("Server Error", "Check WiFi/IP");
+    displayErrorCode("A01", "Sync register fail", "Check WiFi/IP", 1800);
     delay(3000);
   }
 
@@ -471,6 +509,7 @@ void disposal() {
           }
         } else {
           Serial.println("Warning: confirm_disposal API call failed");
+          displayErrorCode("A03", "Confirm failed", "DB not updated", 1200);
         }
         delay(3000);
       } else {
@@ -495,6 +534,16 @@ void disposal() {
         display.println("STOP btn to finish");
         display.display();
       }
+
+    } else if (result == "error") {
+      Serial.println("pollDisposal error - retrying");
+
+      unsigned long now = millis();
+      if (now - last_poll_error_notice >= 8000) {
+        displayErrorCode("A02", "Poll API failed", "Will retry", 900);
+        last_poll_error_notice = now;
+      }
+      delay(POLL_INTERVAL);
 
     } else {
       // No pending entry - keep waiting, show sync code
@@ -540,7 +589,7 @@ void disposal() {
       display.display();
     }
   } else {
-    displayMessage("Upload Failed", "Check WiFi/Server");
+    displayErrorCode("A04", "Upload failed", "Check WiFi/Server", 1800);
     Serial.println("Upload failed");
   }
 
@@ -558,7 +607,10 @@ void disposal() {
 
 // Register sync code with server so website can validate it
 bool registerSync(String sync_code) {
-  if (WiFi.status() != WL_CONNECTED) return false;
+  if (WiFi.status() != WL_CONNECTED) {
+    displayErrorCode("W02", "WiFi disconnected", "register_sync blocked", 1000);
+    return false;
+  }
 
   HTTPClient http;
   http.begin(server_ip + "/api.php");
@@ -568,13 +620,24 @@ bool registerSync(String sync_code) {
                 "\",\"bin_id\":\"" + bin_id + "\"}";
   int code = http.POST(json);
   http.end();
+
+  if (code != 200) {
+    displayErrorCode("A01", "register_sync HTTP", String(code), 1200);
+  }
   return (code == 200);
 }
 
 // Poll for an unconfirmed disposal entry matching sync_code
 // Returns "found", "empty", or "error". Fills disposal_id and plastic_type if found.
 String pollDisposal(String sync_code, int &disposal_id, String &plastic_type) {
-  if (WiFi.status() != WL_CONNECTED) return "error";
+  if (WiFi.status() != WL_CONNECTED) {
+    unsigned long now = millis();
+    if (now - last_poll_error_notice >= 8000) {
+      displayErrorCode("W02", "WiFi disconnected", "poll blocked", 900);
+      last_poll_error_notice = now;
+    }
+    return "error";
+  }
 
   HTTPClient http;
   http.begin(server_ip + "/api.php?action=get_disposal&sync_code=" + sync_code);
@@ -603,12 +666,21 @@ String pollDisposal(String sync_code, int &disposal_id, String &plastic_type) {
   }
 
   http.end();
+
+  unsigned long now = millis();
+  if (now - last_poll_error_notice >= 8000) {
+    displayErrorCode("A02", "poll_disposal HTTP", String(code), 900);
+    last_poll_error_notice = now;
+  }
   return "error";
 }
 
 // Mark disposal as confirmed (confirmed = 1)
 bool confirmDisposal(int disposal_id) {
-  if (WiFi.status() != WL_CONNECTED) return false;
+  if (WiFi.status() != WL_CONNECTED) {
+    displayErrorCode("W02", "WiFi disconnected", "confirm blocked", 1000);
+    return false;
+  }
 
   HTTPClient http;
   http.begin(server_ip + "/api.php");
@@ -617,12 +689,19 @@ bool confirmDisposal(int disposal_id) {
   String json = "{\"action\":\"confirm_disposal\",\"id\":" + String(disposal_id) + "}";
   int code = http.POST(json);
   http.end();
+
+  if (code != 200) {
+    displayErrorCode("A03", "confirm_disposal HTTP", String(code), 1200);
+  }
   return (code == 200);
 }
 
 // Upload final session reward data
 bool uploadData(int points, String unique_code, float weight, String bin_status) {
-  if (WiFi.status() != WL_CONNECTED) return false;
+  if (WiFi.status() != WL_CONNECTED) {
+    displayErrorCode("W02", "WiFi disconnected", "upload blocked", 1000);
+    return false;
+  }
 
   HTTPClient http;
   http.begin(server_ip + "/api.php");
@@ -639,6 +718,10 @@ bool uploadData(int points, String unique_code, float weight, String bin_status)
 
   int code = http.POST(json);
   http.end();
+
+  if (code != 200) {
+    displayErrorCode("A04", "upload_data HTTP", String(code), 1200);
+  }
   return (code == 200);
 }
 
@@ -675,6 +758,29 @@ String generateUniqueCode() {
     code += chars[random(0, 36)];
   }
   return code;
+}
+
+void displayDebug(String line1, String line2, String line3, unsigned long hold_ms) {
+  Serial.println("[DBG] " + line1 +
+                 (line2.length() ? (" / " + line2) : "") +
+                 (line3.length() ? (" / " + line3) : ""));
+
+  if (!oled_available) return;
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println(line1);
+  if (line2.length() > 0) display.println(line2);
+  if (line3.length() > 0) display.println(line3);
+  display.display();
+
+  if (hold_ms > 0) delay(hold_ms);
+}
+
+void displayErrorCode(String code, String meaning, String detail, unsigned long hold_ms) {
+  Serial.println("[ERR " + code + "] " + meaning + (detail.length() ? (" | " + detail) : ""));
+  displayDebug("ERR " + code, meaning, detail, hold_ms);
 }
 
 void displayMessage(String line1, String line2) {

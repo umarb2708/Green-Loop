@@ -1,25 +1,37 @@
-# 🌱 Green Loop - Smart Plastic Collection System
+# Green Loop 🌱
 
-A comprehensive IoT-based smart plastic collection bin system that rewards users for proper plastic disposal and helps track recycling efforts.
+**Smart Plastic Collection Bin System - Version 3.0**
+
+A comprehensive IoT solution for automated plastic waste collection and recycling management. The system uses ESP32-C3 microcontroller, QR code scanning via smartphone, and a web-based management dashboard to track plastic disposal and reward users.
+
+---
 
 ## 📋 Table of Contents
+
 - [Overview](#overview)
 - [Features](#features)
-- [Hardware Requirements](#hardware-requirements)
-- [Software Requirements](#software-requirements)
-- [Installation Guide](#installation-guide)
-- [Usage Guide](#usage-guide)
+- [Hardware Components](#hardware-components)
+- [Software Architecture](#software-architecture)
+- [Hardware Working](#hardware-working)
+- [Software Working](#software-working)
+- [Installation](#installation)
+- [Usage](#usage)
 - [API Documentation](#api-documentation)
+- [Directory Structure](#directory-structure)
+- [Default Credentials](#default-credentials)
 - [Troubleshooting](#troubleshooting)
+
+---
 
 ## 🎯 Overview
 
-Green Loop is an intelligent waste management system that:
-- Automatically sorts plastic waste into 4 categories (PET, HDPE, PP, Others)
-- Scans QR codes to identify products
-- Tracks weight and bin capacity
-- Rewards users with points for recycling
-- Provides real-time monitoring through web dashboard
+Green Loop is an intelligent waste management system designed to encourage plastic recycling through a reward-based mechanism. Users scan QR codes on plastic products using their smartphones, the system identifies the plastic type, users dispose them in the appropriate chamber, and earn points that can be redeemed for rewards.
+
+### Key Components:
+1. **Hardware**: ESP32-C3 based smart bin with 4 chambers for different plastic types
+2. **Firmware**: Arduino-based C++ code for hardware control  and API communication
+3. **Website**: PHP-based web application for user management, QR scanning, and monitoring
+4. **Database**: MySQL database for data persistence
 
 ## ✨ Features
 

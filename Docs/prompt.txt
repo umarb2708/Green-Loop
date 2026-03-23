@@ -4,64 +4,90 @@ This project contains both Hardware and Software parts.
 There will be 4 chambers for a bins for disposing PET(bin1), HDPE(bin2), PP(bin3), Others(bin4) where the lid of this bins are controlled by servo motor. 
 
 Hardware Details 
-    1. ESP32 Cam: Act as MCU & scan QR
+    1. ESP32 C3 Mini: Act as MCU
     2. 4x IR Sensor: To confirm plastic entry
     3. 4x SG90 servo: To open close lid
     4. 20KG load cell+HX711(I2C): To confirm the bottle disposal by checking weight chnage
     5. PCA9685 16 Channel Servo Motor Driver (I2C) : controll Servo 
-    6. two push button 1. Start/continue 2. Stop/Done
+    6. one push button (Start Session / Stop Session)
     7. Oled: For display
 
 Hardware Working: 
-Esp32 should use the Flash memory to store Wifi credential, IP address, bin id. 
+Esp32 should use the Flash memory to store Wifi credential, IP address, bin id.
+globals variables 
+    disposal_started =0;
+    tot_points =0; 
+setup()
+    1. call init_display()
+    2. call Wifi_Setup()
+    3. init_hw()
+init_display();
+    1. Initialize Serial Monitor
+    2. Initialize OLED
+        2.1: If OLED is initialized,  Display Project Name in OLED
+        2.2: Else show error in Serial Monitor
 Wifi_Setup(): (Inside setup function to run after reset or power on)
-    1. Use the stored wifi credential to connect
-    2. If no stored value or not connected to store wifi for 15 sec, then start config_mode
-    3. once new credential recieved or exit from config mode, then continue step 1
+    1. Display Initiaizing Wifi in OLED & Serial Monitor
+    2. Use the stored wifi credential to connect
+    3. If no stored value or not connected to store wifi for 15 sec, then start config_mode with Display in OLED & Serial Monitor
+    4. once new credential recieved or exit from config mode, then continue step 1
 Config_Mode():(works only when functions is called)
     1. Change ESP32 to AP Mode with SSID: GreenLoop, Password: Green@123#
-    2. Start a webserver with form of following field. Show the IP in oled
+    2. Start a webserver with form of following field. Show the IP, AP SSID & Password in oled & Serial Monitor
         2.1: SSID: User can input the new WiFi SSID here
         2.2: Password: User can input the new WiFi Password here
         2.3: IP: this will the website or server IP address for API call 
         2.4: BinID: this is the bin_id value generate from creating a new bin from software side
     3. Store the values in Flash memory
     4. Change the ESP32 to STA mode and exit. 
+init_hw()
+    1. initialize PCA9685. If error, show error in OLED & Serial Monitor
+    2. initialize HX711. If error, show error in OLED & Serial Monitor
+    NB: If error, add a display format like "<hardware> is not initilaized, check wiring and do a reset to re initialize"
+
+loop()
+    1. read_bin_status()
+    2. read_button_click()
+
 read_bin_status(): (This works inside the loop function for every 5 sec and also works when called)
     1. check the total weight
     2. check the state of lid_status[bin_num] (closed or opened) according to servo position
     3. check the IR values. If output return High or Low
     4. for each bin_chamber, If IRVal[bin_num] == LOW &  lid_status[bin_num] = CLOSED, then bin_full[bin_num] =1 else bin_full[bin_num] =0
-    5. return weight, bin_status for each chambers like a 4 digit number. 
+    5. Push weight, bin_full to 'bin_data'  table in the website database
+    5. return weight, bin_status for each chambers like a 4 digit number.Eg: 1011 means bin[3] is not full(value at 3rd position is 0). 
+
 read_button_click() (This works inside the loop function for every 5 sec and also works when called)
     1. check the button1 input
-    2. check the button2 input 
-    3. if (button1 == clicked && button2 == not clicked), then call disposal function
-    4. if (button1 == clicked && button2 == clicked), then call Config Mode function
+    2. if button1 == clicked & disposal_started ==0,  then make disposal_started =1 & call disposal function. Log it in Serial Monitor
+    3. else  button1 == clicked & disposal_started ==1, then make disposal_started =0 & call rewards_earned function. Log it in Serial Monitor
     6. else do nothing and return
 disposal(): 
     1. Initialize a variable tot_points == 0
-    2. User scan the QR code of the plastic
-    3. Hardware will check the type of plastic from "product_data" table of the website database
-    4. call read_bin_status & check the particular bin is full or not
-    5. If not full, then trigger to open the lid of the particular bin or else go to step 9 with 'bin full' status showed in OLED
-    6. A IR sensor placed inside the bin near to the LID will confirm the entry of plastic by changing output state from High to Low. 
-    7. A Load Sensor common to all bins will calculate the weight and chnage in the old weight confirms the plastic disposal
+    2. call read_button_click()
+    3. wait for 10 sec Poll the disposal_data table from webserver where confimred == 0 && bin_id =BinID (from flash memory at startup or config mode)
+    4. If an entry received from step2, then show "Disposing <Type of plastic>" in OLED & Serial Monitor , goto step 5 else step 2
+    5. Trigger to open the lid of the particular chamber 
+    6. Check IR Sensor status of that chamber for next 10 seconds
+        6.1: If IR sensor detected, then goto step 7
+        6.2: Else show error in OLED & Serial monitor & return to step 2
+    7. Check the weight change in Load sensor
+        7.1: If weight changed, then go to step 8 
+        7.2: else Show error & go to step 2
     8. Update the points by adding this below reward points to tot_points
         PET = 10 points
         HDPE = 20 points
         PP = 30 points
         others = 5 points
-    9. Show the tot_points and ask for continue or stop
-    10. If user pressed continue(button1), Then repeat from step 2
-    11. Else if user pressed stop(button2) button, the hardware do the following 
-        11.1. Calculate full points from start to stop. 
-        11.2. Generate a 6 character alphanumeric random value
-        11.3. Call read_bin_status function for bin status  
-        11.4. Push the points , alphanumeric value to the table 'rewards_data' & weight, bin_full to 'bin_data'  table in the website database
-        11.5. Shows the points & the alphanumeric value in OLED screen
-        11.6. User will press Done(button2) button and exit function. 
-
+    9. Update the row fetched at step 2 with confimred == 1
+    10. Show the tot_points in OLED
+    11. Go to step2. 
+rewards_earned()
+    1. Show "Disposal Completed" in OLED & Serial Monitor. 
+    2. Generate a 6 character alphanumeric random value
+    3. Call read_bin_status function for bin status  
+    4. Push the points , alphanumeric value to the table 'rewards_data'.
+    5. Shows the points & the alphanumeric value in OLED screen
 Software Details
     1. HTML, CSS : Front end
     2. PHP: Backend
@@ -89,9 +115,14 @@ MySQL tables
       b. unique_code: this is the alphanumeric code generated at step 11.2 of hardware Working
       c. points: this is the total points calculated at at step 11.1 of hardware Working
       d. collected: This will shows that the reward is already collected or not. default to 0. 
+    5. disposal_data
+      a. id: id: Auto increment primary key
+      b. bin_id: This is the in id where disposal is happening. 
+      c. type: type of plastic
+      d. confirmed: This will update the disposal entry is processed by hardware or not. default to 0.
 Software Details 
     1. index page: 
-        Login section: This will show login form. User or admin can login here. use the 'users' table from DB. if successful_login is done & is_admin ==1 for the current user, then go to admin_dashboard, else if successful_login =1 & is_admin=0, then go to user_dashboard else show login error
+        Login section: This will show login form. User or admin or manufacturer can login here. use the 'users' table from DB. if successful_login is done & is_admin ==1 for the current user, then go to admin_dashboard, else if successful_login =1 & is_admin=0, then go to user_dashboard else if successful_login =1 & is_admin=2, then go to manufacturer_dashboard else show login error
         Signup Section: This is a button along with login button to signup for a new user. Clicking on this button open a form with following field
             a. Name: Name of the user
             b. username: user can choose a username. This should be unique
@@ -128,6 +159,26 @@ Software Details
                         Step2: Update the rewards_collected to the user with new sum value generated above
                         step3: Update the collected field of rewards_data tabel assosiated with the unique ID
             b.2: Claim Rewards: Make this button as place holder for feture use. 
+            b.3: start disposal: Clicking this button will do following
+                b.3.1: open a form to enter bin_id and then user can click Next button
+                b.3.2: page will show two button
+                    b.3.2.1: Start scanning: This button will help to start scanning of QR code. If pressed move to b.3.3
+                    b.3.2.2: Stop Scanning: This will help to stop the disposal session. Clicking on this retunr to the user_dashboard page. 
+                b.3.3: opens a camera to scan QR code. 
+                b.3.4: After successfull scanning, Software uses the scanned value to check with the qr_id of product_data table to identify the type of plastic
+                b.3.5: Software checks the bin_data to check the bin_status and if the bin is full, then give a popup to the user informing bin full and return to step b.3.2
+                b.3.6: else add a new entry to the disposal_table with bin_id at step b.3.1 & the plastic Type from step b.3.4 then continue to step b.3.2
+    3. manufacturer_dashboard: This dashboard used by manufacturer to enter their product info.This page have following section
+        a. Button section: This section contains buttons
+            a.1. add product: This should open a form for entrering new product_data. Form has following fields
+                Manufacturer: default to the user name
+                Type: Dropdown for the type of plastic (PET, HDPE, PP, Others)
+                Submit: Button. After clicking, this will do following
+                    step1: create a 10 character alphanumeric code which is the qr_id.
+                    step2: this qr_id, manufacturer, type is inserted in to the product_data table as new entry.
+                    step3: Generate a QR code using this the qr_id and show it as a pdf form. User can download this 
+                    After clicking OK, retrun to manufacturer_dashboard
+        NB: Add a sample entry in database user table for testing purpose. 
 API Details
     1. upload_data: used to upload points , alphanumeric value to the table 'rewards_data' & weight, bin_full to 'bin_data'  table along with user id. uses below JSON
         {
@@ -141,6 +192,20 @@ API Details
            
 Workspace details 
     - Firmware
-        smart_bin.ino: Firmwarecode
-    - Website: Website data
+        smart_bin_esp32_c3/smart_bin.ino: Firmwarecode
+    - Website: 
+        Website/smart_bin_qr_v3/
+            index.php: Loginpage
+            logout.php: logging out page
+            user_dashboard.php: User dashboard
+            admin_dashboard: Admin dashboard
+            manufacturer_dashboard: manufacturer dashboard
+            config.php: config and session page. 
+            api/*: all hardware related API
+            tools/*: to run a https session using cloudflare
+            style/*: all style related fields
+            database/
+                database.sql: SQL file to import tables
+                sample.php: to enter sample users table data for admin, manufacturer, user
+
 
