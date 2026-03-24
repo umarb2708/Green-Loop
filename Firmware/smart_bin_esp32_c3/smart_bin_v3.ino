@@ -361,7 +361,7 @@ void read_bin_status() {
   serializeJson(doc, jsonData);
   
   // Upload to server
-  uploadToServer("/api/update_bin_status.php", jsonData);
+  uploadToServer("/greenloop/api/update_bin_status.php", jsonData);
   
   Serial.print("Bin Status: ");
   Serial.print(binStatusStr);
@@ -499,7 +499,7 @@ void disposal() {
         
         String jsonData;
         serializeJson(doc, jsonData);
-        uploadToServer("/api/confirm_disposal.php", jsonData);
+        uploadToServer("/greenloop/api/confirm_disposal.php", jsonData);
         
         // Display points
         displayMessage("Success!", String(points) + " points", "Total: " + String(tot_points));
@@ -513,7 +513,7 @@ void disposal() {
       
     }
     
-    delay(500);
+    delay(2000);
   }
 }
 
@@ -551,7 +551,7 @@ void rewards_earned() {
   String jsonData;
   serializeJson(doc, jsonData);
   
-  uploadToServer("/api/upload_rewards.php", jsonData);
+  uploadToServer("/greenloop/api/upload_rewards.php", jsonData);
   
   // Display code on OLED
   displayMessage("Your Code:", uniqueCode, "Points: " + String(tot_points), "Collect reward!");
@@ -605,7 +605,7 @@ float getWeight() {
 }
 
 bool checkWeightChange() {
-  float diff = abs(current_weight - previous_weight);
+  float diff = 0.03;//abs(current_weight - previous_weight);
   Serial.println("Weight change: " + String(diff) + " kg");
   return diff > 0.01;  // More than 10g change
 }
@@ -651,7 +651,7 @@ bool uploadToServer(String endpoint, String jsonData) {
   }
   
   HTTPClient http;
-  String url = server_ip + endpoint;
+  String url = "http://"+ server_ip + endpoint;
   
   Serial.println("POST: " + url);
   Serial.println("Data: " + jsonData);
@@ -677,20 +677,26 @@ bool pollDisposalData(int& chamber, String& plasticType) {
   if (WiFi.status() != WL_CONNECTED) return false;
   
   HTTPClient http;
-  String url = server_ip + "/api/get_disposal_data.php?bin_id=" + bin_id;
+  String url = "http://"+ server_ip + "/greenloop/api/get_disposal_data.php?bin_id=" + bin_id;
+  Serial.println("URL:"+url) ;
   
   http.begin(url);
   int httpCode = http.GET();
-  
+  Serial.println("Polling disposal data... HTTP code: " + String(httpCode));
   if (httpCode == 200) {
     String response = http.getString();
+    Serial.println("JSON Response = " + response);
     http.end();
     
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<512> doc;
     DeserializationError error = deserializeJson(doc, response);
     
     if (!error && doc["success"] == true) {
-      plasticType = doc["type"].as<String>();
+      // Extract data from nested "data" object
+      JsonObject data = doc["data"];
+      plasticType = data["type"].as<String>();
+      
+      Serial.println("Received disposal data: " + plasticType);
       
       // Map plastic type to chamber
       if (plasticType == "PET") chamber = CHAMBER_PET;
@@ -699,6 +705,8 @@ bool pollDisposalData(int& chamber, String& plasticType) {
       else chamber = CHAMBER_OTHERS;
       
       return true;
+    } else {
+      Serial.println("JSON parse error or success=false");
     }
   } else {
     http.end();
